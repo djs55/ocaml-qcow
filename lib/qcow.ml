@@ -232,6 +232,7 @@ module Make(B: Qcow_s.RESIZABLE_BLOCK) = struct
         released until the allocation has been persisted so that concurrent threads
         will not allocate another cluster for the same purpose. *)
     let allocate_clusters t n =
+      assert (Lwt_mutex.is_locked t.next_cluster_m);
       let cluster = t.next_cluster in
       t.next_cluster <- Int64.add t.next_cluster n;
       resize_base t.base t.sector_size (Physical.make (t.next_cluster <| t.cluster_bits))
@@ -752,7 +753,10 @@ module Make(B: Qcow_s.RESIZABLE_BLOCK) = struct
         >>*= fun () ->
         loop limit (Int64.succ i) in
     (* Increase the refcount of all header clusters i.e. those < next_free_cluster *)
-    loop t.next_cluster 0L
+    Lwt_mutex.with_lock t.next_cluster_m
+      (fun () ->
+        loop t.next_cluster 0L
+      )
     >>*= fun () ->
     (* Write an initial empty L1 table *)
     B.write base Int64.(div l1_table_offset (of_int t.base_info.B.sector_size)) [ cluster ]
@@ -761,6 +765,8 @@ module Make(B: Qcow_s.RESIZABLE_BLOCK) = struct
 
   let rebuild_refcount_table t =
     (* Zero all clusters allocated in the refcount table *)
+    Lwt_mutex.with_lock t.next_cluster_m
+      (fun () ->
     let buf = malloc t.h in
     let cluster, _ = Physical.to_cluster ~cluster_bits:t.cluster_bits (Physical.make t.h.Header.refcount_table_offset) in
     let rec loop i =
@@ -842,6 +848,7 @@ module Make(B: Qcow_s.RESIZABLE_BLOCK) = struct
         end
       end in
     loop 0L
+    )
 
   let header t = t.h
 
