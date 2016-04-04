@@ -551,7 +551,8 @@ module Make(B: Qcow_s.RESIZABLE_BLOCK) = struct
     let cluster_size = 1L <| t.cluster_bits in
     let byte = Int64.(mul sector (of_int t.info.sector_size)) in
     iter_p (fun (byte, buf) ->
-
+        assert (Cstruct.len buf <= (1 lsl t.cluster_bits));
+        assert (Cstruct.len buf > 0);
         let vaddr = Virtual.make ~cluster_bits:t.cluster_bits byte in
         ( Cluster.walk_readonly t vaddr
           >>*= function
