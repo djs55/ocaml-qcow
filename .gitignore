@@ -17,6 +17,7 @@ setup.log
 # REMOVE to release the package
 _tags
 lib/META
+lib/libqcow_stubs.clib
 *.mldylib
 *.mllib
 *.mlpack

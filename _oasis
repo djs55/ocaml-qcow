@@ -15,6 +15,8 @@ Library qcow
   Modules:            Qcow_s, Qcow_header, Qcow_error, Qcow_types, Qcow_virtual, Qcow_physical, Qcow
   BuildDepends:       result, cstruct, sexplib, ppx_sexp_conv, mirage-types.lwt,
     lwt, io-page, logs, astring
+  CSources: qcow_stubs.c
+  CCOpt: -O3
 
 Document qcow
   Title:                Qcow docs

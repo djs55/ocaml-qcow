@@ -33,6 +33,11 @@ let src =
 
 module Log = (val Logs.src_log src : Logs.LOG)
 
+type buffer = (char, Bigarray.int8_unsigned_elt, Bigarray.c_layout) Bigarray.Array1
+.t
+
+external is_buffer_full_of_zeroes: buffer -> int -> int -> bool = "qcow_is_buffer_full_of_zeroes"
+
 module Make(B: Qcow_s.RESIZABLE_BLOCK) = struct
 
   type 'a io = 'a Lwt.t
@@ -600,17 +605,25 @@ module Make(B: Qcow_s.RESIZABLE_BLOCK) = struct
         ( Cluster.walk_readonly t vaddr
           >>*= function
           | None ->
-            (* Only the first write to this area needs to allocate, so it's ok
-               to make this a little slower *)
-            Cluster.walk_and_allocate t vaddr
+            (* Quite often the client will write a buffer full of zeroes,
+               unaware that the device contains zeroes already. Since allocation
+               is already expensive, we can hide a quick zero check in here *)
+            if is_buffer_full_of_zeroes buf.Cstruct.buffer buf.Cstruct.off buf.Cstruct.len
+            then Lwt.return (`Ok None)
+            else
+              Cluster.walk_and_allocate t vaddr
+              >>*= fun offset ->
+              Lwt.return (`Ok (Some offset))
           | Some offset' ->
-            Lwt.return (`Ok offset') )
-        >>*= fun offset' ->
-        let base_sector, _ = Physical.to_sector ~sector_size:t.sector_size offset' in
-        B.write t.base base_sector [ buf ]
-        >>*= fun () ->
-        Log.debug (fun f -> f "Written user data to cluster %Ld" (fst (Physical.to_cluster ~cluster_bits:t.cluster_bits offset')));
-        Lwt.return (`Ok ())
+            Lwt.return (`Ok (Some offset')) )
+        >>*= function
+        | None -> Lwt.return (`Ok ()) (* no need to allocate a block and write zeroes into it *)
+        | Some offset' ->
+          let base_sector, _ = Physical.to_sector ~sector_size:t.sector_size offset' in
+          B.write t.base base_sector [ buf ]
+          >>*= fun () ->
+          Log.debug (fun f -> f "Written user data to cluster %Ld" (fst (Physical.to_cluster ~cluster_bits:t.cluster_bits offset')));
+          Lwt.return (`Ok ())
       ) (chop_into_aligned cluster_size byte bufs)
 
   let seek_mapped t from =
