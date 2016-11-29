@@ -152,6 +152,9 @@ module Make(B: Qcow_s.RESIZABLE_BLOCK) = struct
         )
   end
 
+  type discard = {
+    journal: B.t;
+  }
 
   type t = {
     mutable h: Header.t;
@@ -165,6 +168,7 @@ module Make(B: Qcow_s.RESIZABLE_BLOCK) = struct
     cluster_bits: int;
     sector_size: int;
     mutable lazy_refcounts: bool; (* true if we are omitting refcounts right now *)
+    discard: discard option;
   }
 
   let get_info t = Lwt.return t.info
@@ -674,7 +678,7 @@ module Make(B: Qcow_s.RESIZABLE_BLOCK) = struct
 
   let disconnect t = B.disconnect t.base
 
-  let make base h =
+  let make ?discard base h =
     let open Lwt in
     B.get_info base
     >>= fun base_info ->
@@ -709,9 +713,9 @@ module Make(B: Qcow_s.RESIZABLE_BLOCK) = struct
     let flush () = B.flush base in
     let cache = ClusterCache.make ~read_cluster ~write_cluster ~flush () in
     let lazy_refcounts = match h.Header.additional with Some { Header.lazy_refcounts = true } -> true | _ -> false in
-    Lwt.return (`Ok { h; base; info = info'; base_info; next_cluster; next_cluster_m; cache; sector_size; cluster_bits; lazy_refcounts })
+    Lwt.return (`Ok { h; base; info = info'; base_info; next_cluster; next_cluster_m; cache; sector_size; cluster_bits; lazy_refcounts; discard })
 
-  let connect base =
+  let connect ?discard base =
     let open Lwt in
     B.get_info base
     >>= fun base_info ->
@@ -722,7 +726,7 @@ module Make(B: Qcow_s.RESIZABLE_BLOCK) = struct
     | `Ok () ->
       match Header.read sector with
       | Error (`Msg m) -> Lwt.return (`Error (`Unknown m))
-      | Ok (h, _) -> make base h
+      | Ok (h, _) -> make ?discard base h
 
   let resize t ~new_size:requested_size_bytes ?(ignore_data_loss=false) () =
     let existing_size = t.h.Header.size in
@@ -750,7 +754,7 @@ module Make(B: Qcow_s.RESIZABLE_BLOCK) = struct
        not an error that it is unimplemented. *)
     Lwt.return (`Ok ())
 
-  let create base ~size ?(lazy_refcounts=true) () =
+  let create ?discard base ~size ?(lazy_refcounts=true) () =
     let version = `Three in
     let backing_file_offset = 0L in
     let backing_file_size = 0l in
@@ -797,7 +801,7 @@ module Make(B: Qcow_s.RESIZABLE_BLOCK) = struct
        therefore we must resize the backing device now *)
     resize_base base base_info.B.sector_size (Physical.make next_free_byte)
     >>*= fun () ->
-    make base h
+    make ?discard base h
     >>*= fun t ->
     update_header t h
     >>*= fun () ->

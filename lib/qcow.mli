@@ -20,16 +20,23 @@ module Header = Qcow_header
 module Make(B: Qcow_s.RESIZABLE_BLOCK) : sig
   include V1_LWT.BLOCK
 
-  val create: B.t -> size:int64 -> ?lazy_refcounts:bool -> unit
+  type discard = {
+    journal: B.t;  (** A device containing journal for discard operations *)
+  }
+  (** discard (aka TRIM/UNMAP) configuration *)
+
+  val create: ?discard:discard -> B.t -> size:int64 -> ?lazy_refcounts:bool -> unit
       -> [ `Ok of t | `Error of error ] io
-  (** [create block ~size ?lazy_refcounts ()] initialises a qcow-formatted
+  (** [create ?discard block ~size ?lazy_refcounts ()] initialises a qcow-formatted
       image on [block] with virtual size [size] in bytes. By default the file
       will use lazy refcounts, but this can be overriden by supplying
-      [~lazy_refcounts:false] *)
+      [~lazy_refcounts:false]. By default the device will not support discard
+      but this can be overriden by supplying a discard configuration. *)
 
-  val connect: B.t -> [ `Ok of t | `Error of error ] io
-  (** [connect block] connects to an existing qcow-formatted image on
-      [block]. *)
+  val connect: ?discard:discard -> B.t -> [ `Ok of t | `Error of error ] io
+  (** [connect ?discard block] connects to an existing qcow-formatted image on
+      [block]. By default the device will not support discard but this can be
+      overriden by supplying a discard configuration. *)
 
   val resize: t -> new_size:int64 -> ?ignore_data_loss:bool -> unit -> [ `Ok of unit | `Error of error ] io
   (** [resize block new_size_bytes ?ignore_data_loss] changes the size of the
