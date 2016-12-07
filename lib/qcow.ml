@@ -1298,10 +1298,24 @@ module Make(B: Qcow_s.RESIZABLE_BLOCK) = struct
     | Some sectors when t.stats.nr_unmapped > sectors ->
       Log.info (fun f -> f "Total unmapped sectors %Ld > configured threshold %Ld: compacting now" t.stats.nr_unmapped sectors);
       t.stats.nr_unmapped <- 0L;
-      compact t ()
+      Lwt.catch
+        (compact t)
+        (fun e ->
+          Log.err (fun f -> f "compact failed with: %s" (Printexc.to_string e));
+          Lwt.return (`Error (`Unknown "compact"))
+        )
       >>*= fun _report ->
       Lwt.return (`Ok ())
     | _ -> Lwt.return (`Ok ())
+
+  let discard t ~sector ~n () =
+    let open Lwt.Infix in
+    discard t ~sector ~n ()
+    >>= function
+    | `Ok () -> Lwt.return (`Ok ())
+    | `Error e ->
+      Log.err (fun f -> f "discard errored");
+      Lwt.return (`Error e)
 
   let create base ~size ?(lazy_refcounts=true) ?(config = Config.default) () =
     let version = `Three in
