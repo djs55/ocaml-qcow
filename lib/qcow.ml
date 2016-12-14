@@ -720,14 +720,30 @@ module Make(B: Qcow_s.RESIZABLE_BLOCK)(Time: V1_LWT.TIME) = struct
        physical cluster back to virtual. The free set will show us the holes,
        and the map will tell us where to get the data from to fill the holes in
        with. *)
+    let detected_concurrent_write = ref false in
     let mark m rf cluster =
-      let max_cluster = Int64.pred t.next_cluster in
       let c, w = rf in
+      let max_cluster = Int64.pred t.next_cluster in
       if cluster > max_cluster then begin
-        Log.err (fun f -> f "Found a reference to cluster %Ld outside the file (max cluster %Ld) from cluster %Ld.%d" cluster max_cluster c w);
-        failwith (Printf.sprintf "Found a reference to cluster %Ld outside the file (max cluster %Ld) from cluster %Ld.%d" cluster max_cluster c w);
-      end;
-      add m rf cluster in
+        (* If we're checking a file which is being written to concurrently,
+           check to see if the file has been expanded. If so it's worth a log
+           warning but not a hard failure. *)
+        let open Lwt.Infix in
+        Log.err (fun f -> f "recomputing next_cluster");
+        get_next_cluster t.base t.h
+        >>= fun next_cluster ->
+        if t.next_cluster <> next_cluster && not !detected_concurrent_write then begin
+          Log.err (fun f -> f "Detected concurrent write to the qcow image: file increased from %Ld to %Ld clusters" max_cluster (Int64.pred next_cluster));
+          detected_concurrent_write := true;
+        end;
+        t.next_cluster <- next_cluster;
+        let max_cluster = Int64.pred t.next_cluster in
+        if cluster > max_cluster then begin
+          (* It's not concurrent access, it's simply broken *)
+          Log.err (fun f -> f "Found a reference to cluster %Ld outside the file (max cluster %Ld) from cluster %Ld.%d" cluster max_cluster c w);
+          failwith (Printf.sprintf "Found a reference to cluster %Ld outside the file (max cluster %Ld) from cluster %Ld.%d" cluster max_cluster c w);
+        end else Lwt.return (add m rf cluster)
+      end else Lwt.return (add m rf cluster) in
     let refcount_start_cluster, _ = Physical.to_cluster ~cluster_bits:t.cluster_bits (Physical.make t.h.Header.refcount_table_offset) in
     let int64s_per_cluster = 1L <| (Int32.to_int t.h.Header.cluster_bits - 3) in
     let l1_table_start_cluster, _ = Physical.to_cluster ~cluster_bits:t.cluster_bits (Physical.make t.h.Header.l1_table_offset) in
@@ -767,7 +783,9 @@ module Make(B: Qcow_s.RESIZABLE_BLOCK)(Time: V1_LWT.TIME) = struct
               then Lwt.return (`Ok acc)
               else begin
                 let cluster = parse (Cstruct.BE.get_uint64 buf i) in
-                let acc = mark acc (refcount_cluster, i) cluster in
+                let open Lwt.Infix in
+                mark acc (refcount_cluster, i) cluster
+                >>= fun acc ->
                 loop acc (8 + i)
               end in
             loop acc 0
@@ -795,7 +813,9 @@ module Make(B: Qcow_s.RESIZABLE_BLOCK)(Time: V1_LWT.TIME) = struct
           else begin
             let l2_table_cluster = parse (Cstruct.BE.get_uint64 l1 i) in
             if l2_table_cluster <> 0L then begin
-              let acc = mark acc (l1_table_cluster, i) l2_table_cluster in
+              let open Lwt.Infix in
+              mark acc (l1_table_cluster, i) l2_table_cluster
+              >>= fun acc ->
               ClusterCache.read t.cache l2_table_cluster
                 (fun l2 ->
                   Lwt.return (`Ok l2)
@@ -806,7 +826,9 @@ module Make(B: Qcow_s.RESIZABLE_BLOCK)(Time: V1_LWT.TIME) = struct
                 then Lwt.return (`Ok acc)
                 else begin
                   let cluster = parse (Cstruct.BE.get_uint64 l2 i) in
-                  let acc = mark acc (l2_table_cluster, i) cluster in
+                  let open Lwt.Infix in
+                  mark acc (l2_table_cluster, i) cluster
+                  >>= fun acc ->
                   data_iter acc (8 + i)
                 end in
               data_iter acc 0
