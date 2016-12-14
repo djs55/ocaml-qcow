@@ -698,6 +698,21 @@ module Make(B: Qcow_s.RESIZABLE_BLOCK)(Time: V1_LWT.TIME) = struct
           ) (chop_into_aligned cluster_size byte bufs)
       )
 
+  let get_next_cluster base h =
+    let open Lwt in
+    B.get_info base
+    >>= fun base_info ->
+    (* We assume the backing device is resized dynamically so the
+       size is the address of the next cluster *)
+    let sector_size = base_info.B.sector_size in
+    let cluster_bits = Int32.to_int h.Header.cluster_bits in
+    let size_bytes = Int64.(mul base_info.B.size_sectors (of_int sector_size)) in
+    let cluster_size = 1L <| cluster_bits in
+    (* qemu-img will allocate a cluster by writing only a single sector to the end
+       of the file. Therefore we must round up: *)
+    let next_cluster = Int64.(div (round_up size_bytes cluster_size) cluster_size) in
+    Lwt.return next_cluster
+
   let make_cluster_map t =
     let open Qcow_cluster_map in
     (* Iterate over the all clusters referenced from all the tables in the file
@@ -1068,16 +1083,10 @@ module Make(B: Qcow_s.RESIZABLE_BLOCK)(Time: V1_LWT.TIME) = struct
       sector_size = 512;
       size_sectors = Int64.(div h.Header.size 512L);
     } in
-    (* We assume the backing device is resized dynamically so the
-       size is the address of the next cluster *)
     let sector_size = base_info.B.sector_size in
     let cluster_bits = Int32.to_int h.Header.cluster_bits in
-    (* The first cluster is allocated after the L1 table *)
-    let size_bytes = Int64.(mul base_info.B.size_sectors (of_int sector_size)) in
-    let cluster_size = 1L <| cluster_bits in
-    (* qemu-img will allocate a cluster by writing only a single sector to the end
-       of the file. Therefore we must round up: *)
-    let next_cluster = Int64.(div (round_up size_bytes cluster_size) cluster_size) in
+    get_next_cluster base h
+    >>= fun next_cluster ->
     let next_cluster_m = Lwt_mutex.create () in
     let read_cluster i =
       let buf = malloc h in
