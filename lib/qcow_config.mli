@@ -36,6 +36,9 @@ type t = {
 
   read_only: bool;
   (** guarantee to not modify the file *)
+
+  flush_interval_ns: int64;
+  (** interval between flushing metadata updates to the backing disk *)
 }
 
 val create:
@@ -43,6 +46,7 @@ val create:
   ?discard:bool -> ?keep_erased:int64 ->
   ?compact_after_unmaps:int64 -> ?check_on_connect:bool ->
   ?runtime_asserts:bool -> ?read_only:bool ->
+  ?flush_interval_ns:int64 ->
   unit -> t
 
 val default: unit -> t

@@ -30,7 +30,7 @@ module Make(B: Qcow_s.RESIZABLE_BLOCK)(Time: Mirage_time_lwt.S): sig
       write) *)
 
   val start_background_thread: t -> keep_erased:int64 ->
-    ?compact_after_unmaps:int64 -> unit -> unit
+    ?compact_after_unmaps:int64 -> flush_interval_ns:int64 -> unit -> unit
   (** Start a background thread which will perform block recycling *)
 
   val allocate: t -> Cluster.t -> Cluster.IntervalSet.t option

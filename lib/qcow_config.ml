@@ -23,6 +23,7 @@ type t = {
   check_on_connect: bool;
   runtime_asserts: bool;
   read_only: bool;
+  flush_interval_ns: int64;
 }
 let fresh_id =
   let id = ref 0 in
@@ -30,14 +31,15 @@ let fresh_id =
     let result = "unknown_" ^ (string_of_int !id) in
     incr id;
     result
-let create ?(id = fresh_id ()) ?(discard=false) ?keep_erased ?compact_after_unmaps ?(check_on_connect=true) ?(runtime_asserts=false) ?(read_only=false) () =
-  { id; discard; keep_erased; compact_after_unmaps; check_on_connect; runtime_asserts; read_only }
-let to_string t = Printf.sprintf "id=%s;discard=%b;keep_erased=%scompact_after_unmaps=%s;check_on_connect=%b;runtime_asserts=%b;read_only=%b"
+let default_flush_interval_ns = 5_000_000_000L (* 5s *)
+let create ?(id = fresh_id ()) ?(discard=false) ?keep_erased ?compact_after_unmaps ?(check_on_connect=true) ?(runtime_asserts=false) ?(read_only=false) ?(flush_interval_ns = default_flush_interval_ns) () =
+  { id; discard; keep_erased; compact_after_unmaps; check_on_connect; runtime_asserts; read_only; flush_interval_ns }
+let to_string t = Printf.sprintf "id=%s;discard=%b;keep_erased=%scompact_after_unmaps=%s;check_on_connect=%b;runtime_asserts=%b;read_only=%b;flush_interval_ns=%Ld"
     t.id t.discard
     (match t.keep_erased with None -> "0" | Some x -> Int64.to_string x)
     (match t.compact_after_unmaps with None -> "0" | Some x -> Int64.to_string x)
-    t.check_on_connect t.runtime_asserts t.read_only
-let default () = { id = fresh_id (); discard = false; keep_erased = None; compact_after_unmaps = None; check_on_connect = true; runtime_asserts = false; read_only = false }
+    t.check_on_connect t.runtime_asserts t.read_only t.flush_interval_ns
+let default () = { id = fresh_id (); discard = false; keep_erased = None; compact_after_unmaps = None; check_on_connect = true; runtime_asserts = false; read_only = false; flush_interval_ns = default_flush_interval_ns }
 let of_string txt =
   let open Astring in
   try
@@ -58,6 +60,7 @@ let of_string txt =
             | "check_on_connect" -> { t with check_on_connect = bool_of_string v }
             | "runtime_asserts" -> { t with runtime_asserts = bool_of_string v }
             | "read_only" -> { t with read_only = bool_of_string v }
+            | "flush_interval_ns" -> { t with flush_interval_ns = Int64.of_string v }
             | x -> failwith ("Unknown qcow configuration key: " ^ x)
           end
       ) (default ()) strings)

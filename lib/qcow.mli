@@ -31,6 +31,7 @@ module Make(B: Qcow_s.RESIZABLE_BLOCK)(Time: Mirage_time_lwt.S) : sig
       check_on_connect: bool; (** perform an integrity check on connect *)
       runtime_asserts: bool; (** check cluster invariants at runtime *)
       read_only: bool; (** guarantee to not modify the file *)
+      flush_interval_ns: int64; (** interval between flushing metadata updates to the backing disk *)
     }
     (** Runtime configuration of a device *)
 
@@ -41,7 +42,8 @@ module Make(B: Qcow_s.RESIZABLE_BLOCK)(Time: Mirage_time_lwt.S) : sig
       ?compact_after_unmaps:int64 ->
       ?check_on_connect:bool ->
       ?runtime_asserts:bool ->
-      ?read_only:bool -> unit -> t
+      ?read_only:bool ->
+      ?flush_interval_ns:int64 -> unit -> t
     (** Customise the runtime behaviour, see [connect] or [create] *)
 
     val to_string: t -> string

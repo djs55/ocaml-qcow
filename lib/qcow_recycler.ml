@@ -386,7 +386,7 @@ module Make(B: Qcow_s.RESIZABLE_BLOCK)(Time: Mirage_time_lwt.S) = struct
           Lwt.return (Ok ())
       )
 
-  let start_background_thread t ~keep_erased ?compact_after_unmaps () =
+  let start_background_thread t ~keep_erased ?compact_after_unmaps ~flush_interval_ns () =
     let th, _ = Lwt.task () in
     Lwt.on_cancel th
       (fun () ->
@@ -408,7 +408,7 @@ module Make(B: Qcow_s.RESIZABLE_BLOCK)(Time: Mirage_time_lwt.S) = struct
       wait ()
       >>= fun () ->
       t.need_to_flush <- false;
-      Time.sleep_ns 5_000_000_000L
+      Time.sleep_ns flush_interval_ns
       >>= fun () ->
       Log.info (fun f -> f "block recycler: triggering background flush: %s" (Qcow_cluster_map.to_summary_string cluster_map));
       flush t
